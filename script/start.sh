@@ -1,0 +1,1 @@
+ffmpeg -re -i ../film.mp4 -vcodec copy -an -f rtp rtp://127.0.0.1:50041 -vn -acodec copy -f rtp rtp://127.0.0.1:50051
