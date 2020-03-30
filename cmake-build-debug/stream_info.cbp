@@ -89,6 +89,12 @@
 		<Unit filename="/home/ilya/CLionProjects/stream_info/main.cpp">
 			<Option target="stream_info"/>
 		</Unit>
+		<Unit filename="/home/ilya/CLionProjects/stream_info/video_debugging.cpp">
+			<Option target="stream_info"/>
+		</Unit>
+		<Unit filename="/home/ilya/CLionProjects/stream_info/video_debugging.h">
+			<Option target="stream_info"/>
+		</Unit>
 		<Unit filename="/home/ilya/CLionProjects/stream_info/CMakeLists.txt">
 			<Option virtualFolder="CMake Files\"/>
 		</Unit>

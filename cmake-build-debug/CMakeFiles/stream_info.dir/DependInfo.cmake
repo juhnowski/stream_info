@@ -5,6 +5,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
   "/home/ilya/CLionProjects/stream_info/main.cpp" "/home/ilya/CLionProjects/stream_info/cmake-build-debug/CMakeFiles/stream_info.dir/main.cpp.o"
+  "/home/ilya/CLionProjects/stream_info/video_debugging.cpp" "/home/ilya/CLionProjects/stream_info/cmake-build-debug/CMakeFiles/stream_info.dir/video_debugging.cpp.o"
   )
 set(CMAKE_CXX_COMPILER_ID "GNU")
 

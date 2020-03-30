@@ -150,6 +150,33 @@ main.cpp.s:
 	$(MAKE) -f CMakeFiles/stream_info.dir/build.make CMakeFiles/stream_info.dir/main.cpp.s
 .PHONY : main.cpp.s
 
+video_debugging.o: video_debugging.cpp.o
+
+.PHONY : video_debugging.o
+
+# target to build an object file
+video_debugging.cpp.o:
+	$(MAKE) -f CMakeFiles/stream_info.dir/build.make CMakeFiles/stream_info.dir/video_debugging.cpp.o
+.PHONY : video_debugging.cpp.o
+
+video_debugging.i: video_debugging.cpp.i
+
+.PHONY : video_debugging.i
+
+# target to preprocess a source file
+video_debugging.cpp.i:
+	$(MAKE) -f CMakeFiles/stream_info.dir/build.make CMakeFiles/stream_info.dir/video_debugging.cpp.i
+.PHONY : video_debugging.cpp.i
+
+video_debugging.s: video_debugging.cpp.s
+
+.PHONY : video_debugging.s
+
+# target to generate assembly for a file
+video_debugging.cpp.s:
+	$(MAKE) -f CMakeFiles/stream_info.dir/build.make CMakeFiles/stream_info.dir/video_debugging.cpp.s
+.PHONY : video_debugging.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -162,6 +189,9 @@ help:
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
+	@echo "... video_debugging.o"
+	@echo "... video_debugging.i"
+	@echo "... video_debugging.s"
 .PHONY : help
 
 

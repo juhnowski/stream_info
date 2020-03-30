@@ -1,357 +1,271 @@
 #include <iostream>
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
-#include <inttypes.h>
-
-#include "opencv2/opencv.hpp"
-#include "opencv2/highgui.hpp"
-#include "opencv2/video.hpp"
+#include <vector>
 
 extern "C" {
-    #include <libavcodec/avcodec.h>
-    #include <libavformat/avformat.h>
-    #include <libavutil/error.h>
-    #include <libswscale/swscale.h>
+#define __STDC_CONSTANT_MACROS
+#include <libavutil/timestamp.h>
+#include <libavformat/avformat.h>
+
 }
 
 #undef av_err2str
 #define av_err2str(errnum) av_make_error_string((char*)__builtin_alloca(AV_ERROR_MAX_STRING_SIZE), AV_ERROR_MAX_STRING_SIZE, errnum)
 
 using namespace std;
-using namespace cv;
 
-static void logging(const char *fmt, ...);
+int width = 0;
+int height = 0;
+int fps = 30;
+int bitrate = 300000;
 
-static int decode_packet(AVPacket *pPacket, AVCodecContext *pCodecContext, AVFrame *pFrame);
-static void save_gray_frame(unsigned char *buf, int wrap, int xsize, int ysize, char *filename);
-static AVFrame opencv_frame(AVFrame *pFrame );
-static char *sdp_filename = "test.sdp";
-static cv::Mat avframe_to_cvmat(AVFrame *frame, AVCodecContext *pCodecCtx);
-static AVFrame cvmat_to_avframe(cv::Mat* frame);
-static AVFrame* ProcessFrame(AVFrame *frame, AVCodecContext *pCodecCtx);
-static AVFrame opencv_frame(AVFrame *frame, AVCodecContext *pCodecCtx );
-
-int response = 0;
-int how_many_packets_to_process = 200;
-
-
-int main(int argc, const char *argv[]) {
-
-    if (argc < 4) {
-        std::cout << "Usage: ./stream_info video_port audio_port rtmp_url" << std::endl;
-        return -1;
+void initialize_avformat_context(AVFormatContext *&fctx, const char *format_name)
+{
+    int ret = avformat_alloc_output_context2(&fctx, nullptr, format_name, nullptr);
+    if (ret < 0)
+    {
+        std::cout << "Could not allocate output format context!" << std::endl;
+        exit(1);
     }
-//----------------------------------------------------------------------------------------------------------
-    logging("initializing all the containers, codecs and protocols.");
+}
 
-    AVFormatContext *pFormatContext = avformat_alloc_context();
-    if (!pFormatContext) {
-        logging("ERROR could not allocate memory for Format Context");
-        return -1;
+void initialize_io_context(AVFormatContext *&fctx, const char *output)
+{
+    if (!(fctx->oformat->flags & AVFMT_NOFILE))
+    {
+        int ret = avio_open2(&fctx->pb, output, AVIO_FLAG_WRITE, nullptr, nullptr);
+        if (ret < 0)
+        {
+            std::cout << "initialize_io_context: Could not open output IO context!" << std::endl;
+            exit(1);
+        }
     }
-//----------------------------------------------------------------------------------------------------------
-    logging("opening the input file (%s) and loading format (container) header", sdp_filename);
+}
 
-    /**
-     * создаем словарь с белым списком
-     */
 
+void set_codec_params(AVFormatContext *&fctx, AVCodecContext *&codec_ctx)
+{
+    const AVRational dst_fps = {fps, 1};
+
+    codec_ctx->codec_tag = 0;
+    codec_ctx->codec_id = AV_CODEC_ID_H264;
+    codec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
+    codec_ctx->width = width;
+    codec_ctx->height = height;
+    codec_ctx->gop_size = 12;
+    codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    codec_ctx->framerate = dst_fps;
+    codec_ctx->time_base = av_inv_q(dst_fps);
+    codec_ctx->bit_rate = bitrate;
+    if (fctx->oformat->flags & AVFMT_GLOBALHEADER)
+    {
+        codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    }
+}
+
+void initialize_codec_stream(AVStream *&stream, AVCodecContext *&codec_ctx, AVCodec *&codec, std::string codec_profile)
+{
+    int ret = avcodec_parameters_from_context(stream->codecpar, codec_ctx);
+    if (ret < 0)
+    {
+        std::cout << "Could not initialize stream codec parameters!" << std::endl;
+        exit(1);
+    }
+
+    AVDictionary *codec_options = nullptr;
+    av_dict_set(&codec_options, "profile", codec_profile.c_str(), 0);
+    av_dict_set(&codec_options, "preset", "superfast", 0);
+    av_dict_set(&codec_options, "tune", "zerolatency", 0);
+
+    // open video encoder
+    ret = avcodec_open2(codec_ctx, codec, &codec_options);
+    if (ret < 0)
+    {
+        std::cout << "Could not open video encoder!" << std::endl;
+        exit(1);
+    }
+}
+
+
+int main(int argc, char **argv)
+{
+//    AVFormatContext *input_format_context = NULL, *output_format_context = NULL;
+    AVPacket packet;
+//    const char *in_filename, *out_filename;
+    int ret, i;
+    int stream_index = 0;
+    int *streams_list = NULL;
+    int number_of_streams = 0;
+//    int fragmented_mp4_options = 0;
+//
+//    if (argc < 3) {
+//        printf("You need to pass at least two parameters.\n");
+//        return -1;
+//    } else if (argc == 4) {
+//        fragmented_mp4_options = 1;
+//    }
+//
+//    in_filename  = argv[1];
+//    //out_filename = argv[2];
+//    std::string outputServer = argv[2];
+//    std::string h264profile = "high444";
+//    const char *output = outputServer.c_str();
+//
+//
+//
+
+//
+//    avformat_alloc_output_context2(&output_format_context, nullptr, "flv", nullptr);
+//    if (!output_format_context) {
+//        fprintf(stderr, "Could not create output context\n");
+//        ret = AVERROR_UNKNOWN;
+//        return -1;
+//    }
+//
+//    int ret1 = avio_open2(&output_format_context->pb, output, AVIO_FLAG_WRITE, nullptr, nullptr);
+//    if (ret1 < 0)
+//    {
+//        std::cout << "initialize_io_context: Could not open output IO context!" << std::endl;
+//        exit(1);
+//    }
+    std::string h264profile = "high444";
+    const char *in_filename;
+    in_filename  = argv[1];
+    std::string inputSdp = argv[1];
+    std::string outputServer = argv[2];
+
+    cout << "Set sdp file: " << inputSdp << endl;
+    cout << "Set rtmp url: " << outputServer  << endl;
+
+    av_log_set_level(AV_LOG_DEBUG);
+
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
+    av_register_all();
+#endif
+    avformat_network_init();
+
+    const char *output = outputServer.c_str();
+
+
+    AVFormatContext *output_format_context = nullptr;
+    AVCodec *out_codec = nullptr;
+    AVStream *out_stream = nullptr;
+    AVCodecContext *out_codec_ctx = nullptr;
+
+    initialize_avformat_context(output_format_context, "flv");
+    output_format_context->protocol_whitelist = "file,tcp,rtmp,udp,rtp";
+    initialize_io_context(output_format_context, output);
+
+    out_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    out_stream = avformat_new_stream(output_format_context, out_codec);
+    out_codec_ctx = avcodec_alloc_context3(out_codec);
+
+    set_codec_params(output_format_context, out_codec_ctx);
+    initialize_codec_stream(out_stream, out_codec_ctx, out_codec, h264profile);
+
+    out_stream->codecpar->extradata = out_codec_ctx->extradata;
+    out_stream->codecpar->extradata_size = out_codec_ctx->extradata_size;
+
+    av_dump_format(output_format_context, 0, output, 1);
+
+//    auto *swsctx = initialize_sample_scaler(out_codec_ctx, width, height);
+//    auto *frame = allocate_frame_buffer(out_codec_ctx, width, height);
+
+    int cur_size;
+    uint8_t *cur_ptr;
+
+    ret = avformat_write_header(output_format_context, nullptr);
+    if (ret < 0)
+    {
+        std::cout << "Could not write header!" << std::endl;
+        exit(1);
+    }
+
+    AVFormatContext *input_format_context = NULL;
     AVDictionary *d = NULL;
     av_dict_set(&d, "protocol_whitelist", "file,rtp,udp",0);
 
-    /**
-     * Открываем поток
-     * Читаем заголовок
-     * Кодек не открыт
-     */
-    if (avformat_open_input(&pFormatContext, sdp_filename, NULL, &d) != 0) {
-        logging("ERROR could not open the file");
+    if ((ret = avformat_open_input(&input_format_context, in_filename, NULL, &d)) < 0) {
+        fprintf(stderr, "Could not open input file '%s'", in_filename);
+        return -1;
+    }
+    if ((ret = avformat_find_stream_info(input_format_context, NULL)) < 0) {
+        fprintf(stderr, "Failed to retrieve input stream information");
+        return -1;
+    }
+//----------------------------------------------------------------
+    number_of_streams = input_format_context->nb_streams;
+    streams_list = (int *)av_mallocz_array(number_of_streams, sizeof(*streams_list));
+
+    if (!streams_list) {
+        ret = AVERROR(ENOMEM);
         return -1;
     }
 
-//----------------------------------------------------------------------------------------------------------
-    logging("format %s, duration %lld us, bit_rate %lld", pFormatContext->iformat->name, pFormatContext->duration, pFormatContext->bit_rate);
-    logging("finding stream info from format");
-
-    /**
-     * Получаем информацию о стримах
-     * Функция заполняет pFormatContext->streams
-     */
-    if (avformat_find_stream_info(pFormatContext,  NULL) < 0) {
-        logging("ERROR could not get the stream info");
-        return -1;
-    }
-//----------------------------------------------------------------------------------------------------------
-    /**
-     * Структура данных по кодеку
-     */
-    AVCodec *pCodec = NULL;
-
-    /**
-     * Параметры кодека
-     */
-    AVCodecParameters *pCodecParameters =  NULL;
-
-    int video_stream_index = -1;
-
-
-    /**
-     * По каждому стриму получаем данные
-LOG: finding stream info from format
-LOG: AVStream->time_base before open coded 1/90000
-LOG: AVStream->r_frame_rate before open coded 24/1
-LOG: AVStream->start_time 3750
-LOG: AVStream->duration -9223372036854775808
-LOG: finding the proper decoder (CODEC)
-LOG: Video Codec: resolution 1280 x 720
-LOG: 	Codec h264 ID 27 bit_rate 0
-LOG: AVStream->time_base before open coded 1/44100
-LOG: AVStream->r_frame_rate before open coded 0/0
-LOG: AVStream->start_time 0
-LOG: AVStream->duration -9223372036854775808
-LOG: finding the proper decoder (CODEC)
-LOG: Audio Codec: 2 channels, sample rate 44100
-LOG: 	Codec aac ID 86018 bit_rate 0
-     */
-    for (int i = 0; i < pFormatContext->nb_streams; i++)
-    {
-        AVCodecParameters *pLocalCodecParameters =  NULL;
-        pLocalCodecParameters = pFormatContext->streams[i]->codecpar;
-        logging("AVStream->time_base before open coded %d/%d", pFormatContext->streams[i]->time_base.num, pFormatContext->streams[i]->time_base.den);
-        logging("AVStream->r_frame_rate before open coded %d/%d", pFormatContext->streams[i]->r_frame_rate.num, pFormatContext->streams[i]->r_frame_rate.den);
-        logging("AVStream->start_time %" PRId64, pFormatContext->streams[i]->start_time);
-        logging("AVStream->duration %" PRId64, pFormatContext->streams[i]->duration);
-
-        logging("finding the proper decoder (CODEC)");
-
-        AVCodec *pLocalCodec = NULL;
-
-        // finds the registered decoder for a codec ID
-        // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga19a0ca553277f019dd5b0fec6e1f9dca
-        pLocalCodec = avcodec_find_decoder(pLocalCodecParameters->codec_id);
-
-        if (pLocalCodec==NULL) {
-            logging("ERROR unsupported codec!");
+    for (i = 0; i < input_format_context->nb_streams; i++) {
+        AVStream *out_stream;
+        AVStream *in_stream = input_format_context->streams[i];
+        AVCodecParameters *in_codecpar = in_stream->codecpar;
+        if (in_codecpar->codec_type != AVMEDIA_TYPE_AUDIO &&
+            in_codecpar->codec_type != AVMEDIA_TYPE_VIDEO &&
+            in_codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE) {
+            streams_list[i] = -1;
+            continue;
+        }
+        streams_list[i] = stream_index++;
+        out_stream = avformat_new_stream(output_format_context, NULL);
+        if (!out_stream) {
+            fprintf(stderr, "Failed allocating output stream\n");
+            ret = AVERROR_UNKNOWN;
             return -1;
         }
-
-        // when the stream is a video we store its index, codec parameters and codec
-        if (pLocalCodecParameters->codec_type == AVMEDIA_TYPE_VIDEO) {
-            if (video_stream_index == -1) {
-                video_stream_index = i;
-                pCodec = pLocalCodec;
-                pCodecParameters = pLocalCodecParameters;
-            }
-
-            logging("Video Codec: resolution %d x %d", pLocalCodecParameters->width, pLocalCodecParameters->height);
-        } else if (pLocalCodecParameters->codec_type == AVMEDIA_TYPE_AUDIO) {
-            logging("Audio Codec: %d channels, sample rate %d", pLocalCodecParameters->channels, pLocalCodecParameters->sample_rate);
+        ret = avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
+        if (ret < 0) {
+            fprintf(stderr, "Failed to copy codec parameters\n");
+            return -1;
         }
-
-        // print its name, id and bitrate
-        logging("\tCodec %s ID %d bit_rate %lld", pLocalCodec->name, pLocalCodec->id, pLocalCodecParameters->bit_rate);
-    }
-//----------------------------------------------------------------------------------------------------------
-    AVCodecContext *pCodecContext = avcodec_alloc_context3(pCodec);
-    if (!pCodecContext)
-    {
-        logging("failed to allocated memory for AVCodecContext");
-        return -1;
-    }
-//----------------------------------------------------------------------------------------------------------
-// Устанавливаем параметры кодека
-    if (avcodec_parameters_to_context(pCodecContext, pCodecParameters) < 0)
-    {
-        logging("failed to copy codec params to codec context");
-        return -1;
-    }
-//----------------------------------------------------------------------------------------------------------
-// Инициализируем AVCodecContext для испльзования выбранного AVCodec.
-    if (avcodec_open2(pCodecContext, pCodec, NULL) < 0)
-    {
-        logging("failed to open codec through avcodec_open2");
-        return -1;
-    }
-//----------------------------------------------------------------------------------------------------------
-// Выделяем память под фрейм и пакет
-    // https://ffmpeg.org/doxygen/trunk/structAVFrame.html
-    AVFrame *pFrame = av_frame_alloc();
-    if (!pFrame)
-    {
-        logging("failed to allocated memory for AVFrame");
-        return -1;
-    }
-    // https://ffmpeg.org/doxygen/trunk/structAVPacket.html
-    AVPacket *pPacket = av_packet_alloc();
-    if (!pPacket)
-    {
-        logging("failed to allocated memory for AVPacket");
-        return -1;
-    }
-//----------------------------------------------------------------------------------------------------------
-
-//----------------------------------------------------------------------------------------------------------
-// Заполняем пакет данными из стрима
-    while (av_read_frame(pFormatContext, pPacket) >= 0)
-    {
-        // if it's the video stream
-        if (pPacket->stream_index == video_stream_index) {
-            logging("AVPacket->pts %" PRId64, pPacket->pts);
-            response = decode_packet(pPacket, pCodecContext, pFrame);
-            if (response < 0)
-                break;
-            // stop it, otherwise we'll be saving hundreds of frames
-            if (--how_many_packets_to_process <= 0) break;
-        }
-        // https://ffmpeg.org/doxygen/trunk/group__lavc__packet.html#ga63d5a489b419bd5d45cfd09091cbcbc2
-        av_packet_unref(pPacket);
     }
 
-    logging("releasing all the resources");
-
-    avformat_close_input(&pFormatContext);
-    av_packet_free(&pPacket);
-    av_frame_free(&pFrame);
-    avcodec_free_context(&pCodecContext);
-
-    return 0;
-}
-
-static void logging(const char *fmt, ...)
-{
-    va_list args;
-    fprintf( stderr, "LOG: " );
-    va_start( args, fmt );
-    vfprintf( stderr, fmt, args );
-    va_end( args );
-    fprintf( stderr, "\n" );
-}
-
-static int decode_packet(AVPacket *pPacket, AVCodecContext *pCodecContext, AVFrame *pFrame)
-{
-    // Supply raw packet data as input to a decoder
-    // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga58bc4bf1e0ac59e27362597e467efff3
-    int response = avcodec_send_packet(pCodecContext, pPacket);
-
-    if (response < 0) {
-        logging("Error while sending a packet to the decoder: %s", response);
-        return response;
-    }
-
-    while (response >= 0)
-    {
-        // Return decoded output data (into a frame) from a decoder
-        // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga11e6542c4e66d3028668788a1a74217c
-        response = avcodec_receive_frame(pCodecContext, pFrame);
-        if (response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
+    while (1) {
+        AVStream *in_stream, *out_stream;
+        ret = av_read_frame(input_format_context, &packet);
+        if (ret < 0)
             break;
-        } else if (response < 0) {
-            logging("Error while receiving a frame from the decoder: %s", response);
-            return response;
+        in_stream  = input_format_context->streams[packet.stream_index];
+        if (packet.stream_index >= number_of_streams || streams_list[packet.stream_index] < 0) {
+            av_packet_unref(&packet);
+            continue;
         }
+        packet.stream_index = streams_list[packet.stream_index];
+        out_stream = output_format_context->streams[packet.stream_index];
+        /* copy packet */
+        packet.pts = av_rescale_q_rnd(packet.pts, in_stream->time_base, out_stream->time_base,
+                                      static_cast<AVRounding>(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+        packet.dts = av_rescale_q_rnd(packet.dts, in_stream->time_base, out_stream->time_base,
+                                      static_cast<AVRounding>(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+        packet.duration = av_rescale_q(packet.duration, in_stream->time_base, out_stream->time_base);
+        // https://ffmpeg.org/doxygen/trunk/structAVPacket.html#ab5793d8195cf4789dfb3913b7a693903
+        packet.pos = -1;
 
-        if (response >= 0) {
-            logging(
-                    "Frame %d (type=%c, size=%d bytes) pts %d key_frame %d [DTS %d]",
-                    pCodecContext->frame_number,
-                    av_get_picture_type_char(pFrame->pict_type),
-                    pFrame->pkt_size,
-                    pFrame->pts,
-                    pFrame->key_frame,
-                    pFrame->coded_picture_number
-            );
-
-            char frame_filename[1024];
-            char tmp_filename[1024];
-            snprintf(frame_filename, sizeof(frame_filename), "%s-%d.pgm", "frame", pCodecContext->frame_number);
-            snprintf(tmp_filename, sizeof(frame_filename), "%s-%d_tmp.pgm", "frame", pCodecContext->frame_number);
-            // save a grayscale frame into a .pgm file
-            AVFrame t = opencv_frame(pFrame, pCodecContext);
-            AVFrame *tmp = &t;
-        //    AVFrame *tmp = ProcessFrame(tmp, pCodecContext);
-            save_gray_frame(pFrame->data[0], pFrame->linesize[0], pFrame->width, pFrame->height, frame_filename);
-            save_gray_frame(tmp->data[0], pFrame->linesize[0], pFrame->width, pFrame->height, tmp_filename);
-            cout<<frame_filename<<endl;
+        //https://ffmpeg.org/doxygen/trunk/group__lavf__encoding.html#ga37352ed2c63493c38219d935e71db6c1
+        ret = av_interleaved_write_frame(output_format_context, &packet);
+        if (ret < 0) {
+            fprintf(stderr, "Error muxing packet\n");
+            break;
         }
+        av_packet_unref(&packet);
+    }
+    //https://ffmpeg.org/doxygen/trunk/group__lavf__encoding.html#ga7f14007e7dc8f481f054b21614dfec13
+    av_write_trailer(output_format_context);
+    end:
+    avformat_close_input(&input_format_context);
+    /* close output */
+    if (output_format_context && !(output_format_context->oformat->flags & AVFMT_NOFILE))
+        avio_closep(&output_format_context->pb);
+    avformat_free_context(output_format_context);
+    av_freep(&streams_list);
+    if (ret < 0 && ret != AVERROR_EOF) {
+        fprintf(stderr, "Error occurred: %s\n", av_err2str(ret));
+        return 1;
     }
     return 0;
-}
-
-static void save_gray_frame(unsigned char *buf, int wrap, int xsize, int ysize, char *filename)
-{
-    FILE *f;
-    int i;
-    f = fopen(filename,"w");
-    // writing the minimal required header for a pgm file format
-    // portable graymap format -> https://en.wikipedia.org/wiki/Netpbm_format#PGM_example
-    fprintf(f, "P5\n%d %d\n%d\n", xsize, ysize, 255);
-
-    // writing line by line
-    for (i = 0; i < ysize; i++)
-        fwrite(buf + i * wrap, 1, xsize, f);
-    fclose(f);
-}
-
-static AVFrame opencv_frame(AVFrame *frame, AVCodecContext *pCodecCtx ) {
-    int ret;
-
-    Mat mat = avframe_to_cvmat(frame, pCodecCtx);
-//    Mat small = mat(Rect(600,300,300,300));
-//    small.copyTo(mat(Rect(50,50,300,300)));
-
-    return cvmat_to_avframe(&mat);
-}
-
-static AVFrame cvmat_to_avframe(cv::Mat* frame)
-{
-
-    AVFrame dst;
-
-    cv::Size frameSize = frame->size();
-    AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_RAWVIDEO);
-    AVFormatContext* outContainer = avformat_alloc_context();
-    AVStream *outStream = avformat_new_stream(outContainer, encoder);
-    avcodec_get_context_defaults3(outStream->codec, encoder);
-
-    outStream->codec->pix_fmt = AV_PIX_FMT_BGR24;
-    outStream->codec->width = frame->cols;
-    outStream->codec->height = frame->rows;
-    avpicture_fill((AVPicture*)&dst, frame->data, AV_PIX_FMT_BGR24, outStream->codec->width, outStream->codec->height);
-    dst.width = frameSize.width;
-    dst.height = frameSize.height;
-
-    return dst;
-}
-
-
-static cv::Mat avframe_to_cvmat(AVFrame *frame, AVCodecContext *pCodecCtx)
-{
-
-    AVFrame dst;
-    cv::Mat m;
-
-    memset(&dst, 0, sizeof(dst));
-
-    int w = frame->width, h = frame->height;
-
-    int size = avpicture_get_size(AV_PIX_FMT_BGR24, pCodecCtx->width, pCodecCtx->height);
-    uint8_t  *out_bufferRGB = (uint8_t *)av_malloc(size);
-
-    m = cv::Mat(h, w, CV_8UC3, out_bufferRGB, Mat::AUTO_STEP);
-    dst.data[0] = (uint8_t *)m.data;
-    avpicture_fill( (AVPicture *)&dst, dst.data[0], AV_PIX_FMT_BGR24, w, h);
-
-    struct SwsContext *convert_ctx=NULL;
-    enum AVPixelFormat src_pixfmt = AV_PIX_FMT_BGR24;
-    enum AVPixelFormat dst_pixfmt = AV_PIX_FMT_BGR24;
-    convert_ctx = sws_getContext(w, h, src_pixfmt, w, h, dst_pixfmt,
-                                 SWS_FAST_BILINEAR, NULL, NULL, NULL);
-
-    sws_scale(convert_ctx, frame->data, frame->linesize, 0, h,
-              dst.data, dst.linesize);
-    sws_freeContext(convert_ctx);
-
-    return m;
 }
